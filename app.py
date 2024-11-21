@@ -430,17 +430,6 @@ with col3:
             # Título de la aplicación
             st.title("KPI: Incremento del 10% en la Velocidad Promedio de Internet")
 
-            # Ruta del archivo Excel
-            ruta_excel = "data/internet.xlsx"
-            hoja = "Velocidad % por prov"
-
-            # Cargar los datos desde el Excel
-            @st.cache_data
-            def cargar_datos(ruta, hoja):
-                return pd.read_excel(ruta, sheet_name=hoja)
-
-            df_v = cargar_datos(ruta_excel, hoja)
-
             # Filtrar los datos del año 2024 y trimestre 2
             df_v = df_v[(df_v["Año"] == 2024) & (df_v["Trimestre"] == 2)]
 
