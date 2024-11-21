@@ -4,6 +4,7 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 import plotly.express as px
+import os
 
 # Configurar la página para diseño ancho
 st.set_page_config(
@@ -46,8 +47,26 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Cargar el dataset
-df1 = pd.read_excel("data/Internet.xlsx")
+
+# Obtener la ruta absoluta del directorio actual
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Rutas absolutas para los archivos Excel
+EXCEL_PATH = os.path.join(BASE_DIR, "data", "Internet.xlsx")
+# Función para cargar hojas específicas de un archivo Excel
+def cargar_hoja(ruta, hoja):
+    """Carga una hoja específica desde un archivo Excel."""
+    try:
+        return pd.read_excel(ruta, sheet_name=hoja)
+    except Exception as e:
+        st.error(f"No se pudo cargar la hoja '{hoja}' del archivo '{ruta}': {e}")
+        return None
+
+# Cargar las hojas necesarias
+df1 = cargar_hoja(EXCEL_PATH, "Acc_vel_loc_sinrangos")  # Cambia "Hoja_Principal" por el nombre real de la hoja
+df_ph = cargar_hoja(EXCEL_PATH, "Penetracion-hogares")
+df_pp = cargar_hoja(EXCEL_PATH, "Penetración-poblacion")
+df_v = cargar_hoja(EXCEL_PATH, "Velocidad % por prov")
 
 # Renombramos las columnas 
 df1.rename(columns={
@@ -325,68 +344,55 @@ with tabs[1]:
                 st.error("El archivo no contiene las columnas necesarias: 'Provincia' y 'Accesos por cada 100 hogares'.")
 
         
-
-    with col2: 
-            
+with col2: 
             # Título de la aplicación
             st.title("KPI: Incremento del 5% en Accesos por cada 100 Habitantes")
 
-            # Ruta del archivo Excel
-            ruta_excel = "data/internet.xlsx"
-            hoja = "Penetración-poblacion"
-
-            # Cargar los datos desde el Excel
-            @st.cache_data
-            def cargar_datos(ruta, hoja):
-                return pd.read_excel(ruta, sheet_name=hoja)
-
-            df = cargar_datos(ruta_excel, hoja)
-
             # Filtrar los datos del año 2024 y trimestre 2
-            df = df[(df["Año"] == 2024) & (df["Trimestre"] == 2)]
+            df_pp = df_pp[(df_pp["Año"] == 2024) & (df_pp["Trimestre"] == 2)]
 
             # Calcular el incremento esperado (5%)
-            df["Incremento esperado"] = df["Accesos por cada 100 hab"] * 0.05
-            df["Acceso esperado"] = df["Accesos por cada 100 hab"] + df["Incremento esperado"]
+            df_pp["Incremento esperado"] = df_pp["Accesos por cada 100 hab"] * 0.05
+            df_pp["Acceso esperado"] = df_pp["Accesos por cada 100 hab"] + df_pp["Incremento esperado"]
 
             # Inicializar columna para el incremento real si no está en `st.session_state`
             if "Incremento real" not in st.session_state:
-                st.session_state["Incremento real"] = df["Incremento esperado"].copy()
+                st.session_state["Incremento real"] = df_pp["Incremento esperado"].copy()
 
-            df["Incremento real"] = st.session_state["Incremento real"]
+            df_pp["Incremento real"] = st.session_state["Incremento real"]
 
             # Actualizar manualmente el incremento real para cada provincia
             st.subheader("Actualizar Incremento Real")
-            provincia_seleccionada = st.selectbox("Selecciona una provincia:", df["Provincia"])
+            provincia_seleccionada = st.selectbox("Selecciona una provincia:", df_pp["Provincia"])
 
             nuevo_incremento_real = st.number_input(
                 f"Introduce el incremento real para {provincia_seleccionada}:",
                 min_value=0.0,
-                value=float(df.loc[df["Provincia"] == provincia_seleccionada, "Incremento real"].values[0]),
+                value=float(df_pp.loc[df_pp["Provincia"] == provincia_seleccionada, "Incremento real"].values[0]),
                 step=0.1
             )
 
             # Actualizar el valor en el DataFrame y en `st.session_state`
-            df.loc[df["Provincia"] == provincia_seleccionada, "Incremento real"] = nuevo_incremento_real
-            st.session_state["Incremento real"] = df["Incremento real"]
+            df_pp.loc[df_pp["Provincia"] == provincia_seleccionada, "Incremento real"] = nuevo_incremento_real
+            st.session_state["Incremento real"] = df_pp["Incremento real"]
 
             # Calcular KPI real en base al incremento real ingresado
-            df["KPI real (%)"] = (df["Incremento real"] / df["Accesos por cada 100 hab"]) * 100
+            df_pp["KPI real (%)"] = (df_pp["Incremento real"] / df_pp["Accesos por cada 100 hab"]) * 100
 
             # Mostrar los datos procesados
             st.subheader("Datos Procesados")
-            st.write(df[["Provincia", "Accesos por cada 100 hab", "Incremento esperado", "Acceso esperado", "Incremento real", "KPI real (%)"]])
+            st.write(df_pp[["Provincia", "Accesos por cada 100 hab", "Incremento esperado", "Acceso esperado", "Incremento real", "KPI real (%)"]])
 
             # Gráfico: Incremento esperado vs. real
             st.subheader("Gráfico: Incremento Esperado vs Real")
             fig, ax = plt.subplots(figsize=(12, 6))
             bar_width = 0.35
-            x = range(len(df["Provincia"]))
+            x = range(len(df_pp["Provincia"]))
 
-            ax.bar(x, df["Incremento esperado"], width=bar_width, label="Incremento esperado", color="skyblue")
+            ax.bar(x, df_pp["Incremento esperado"], width=bar_width, label="Incremento esperado", color="skyblue")
             ax.bar(
                 [p + bar_width for p in x],
-                df["Incremento real"],
+                df_pp["Incremento real"],
                 width=bar_width,
                 label="Incremento real",
                 color="orange"
@@ -396,32 +402,31 @@ with tabs[1]:
             ax.set_xlabel("Provincias", fontsize=12)
             ax.set_ylabel("Incremento", fontsize=12)
             ax.set_xticks([p + bar_width / 2 for p in x])
-            ax.set_xticklabels(df["Provincia"], rotation=45, ha="right")
+            ax.set_xticklabels(df_pp["Provincia"], rotation=45, ha="right")
             ax.legend()
             st.pyplot(fig)
 
             # Gráfico: KPI real por provincia
             st.subheader("Gráfico: KPI Real (%) por Provincia")
             fig, ax = plt.subplots(figsize=(12, 6))
-            ax.bar(df["Provincia"], df["KPI real (%)"], color="green")
+            ax.bar(df_pp["Provincia"], df_pp["KPI real (%)"], color="green")
             ax.set_title("KPI Real (%) por Provincia (Trimestre 2, 2024)", fontsize=14)
             ax.set_xlabel("Provincia", fontsize=12)
             ax.set_ylabel("KPI Real (%)", fontsize=12)
-            ax.set_xticklabels(df["Provincia"], rotation=45, ha="right")
+            ax.set_xticklabels(df_pp["Provincia"], rotation=45, ha="right")
             st.pyplot(fig)
 
             # Descargar los datos procesados
             st.subheader("Descarga de Datos Procesados")
-            csv = df.to_csv(index=False)
+            csv = df_pp.to_csv(index=False)
             st.download_button(
                 label="Descargar CSV con KPI",
                 data=csv,
                 file_name="kpi_incremento_accesos.csv",
                 mime="text/csv",
             )
-            
-    
-    with col3: 
+
+with col3: 
             # Título de la aplicación
             st.title("KPI: Incremento del 10% en la Velocidad Promedio de Internet")
 
@@ -434,53 +439,53 @@ with tabs[1]:
             def cargar_datos(ruta, hoja):
                 return pd.read_excel(ruta, sheet_name=hoja)
 
-            df2 = cargar_datos(ruta_excel, hoja)
+            df_v = cargar_datos(ruta_excel, hoja)
 
             # Filtrar los datos del año 2024 y trimestre 2
-            df2 = df2[(df["Año"] == 2024) & (df2["Trimestre"] == 2)]
+            df_v = df_v[(df_v["Año"] == 2024) & (df_v["Trimestre"] == 2)]
 
             # Calcular el incremento esperado (10%)
-            df2["Incremento esperado"] = df2["Mbps (Media de bajada)"] * 0.10
-            df2["Velocidad esperada"] = df2["Mbps (Media de bajada)"] + df2["Incremento esperado"]
+            df_v["Incremento esperado"] = df_v["Mbps (Media de bajada)"] * 0.10
+            df_v["Velocidad esperada"] = df_v["Mbps (Media de bajada)"] + df_v["Incremento esperado"]
 
             # Inicializar columna para el incremento real si no está en `st.session_state`
             if "Incremento real velocidad" not in st.session_state:
-                st.session_state["Incremento real velocidad"] = df2["Incremento esperado"].copy()
+                st.session_state["Incremento real velocidad"] = df_v["Incremento esperado"].copy()
 
-            df2["Incremento real"] = st.session_state["Incremento real velocidad"]
+            df_v["Incremento real"] = st.session_state["Incremento real velocidad"]
 
             # Actualizar manualmente el incremento real para cada provincia
             st.subheader("Actualizar Incremento Real")
-            provincia_seleccionada = st.selectbox("Selecciona una provincia:", df2["Provincia"], key="incremento_real")
+            provincia_seleccionada = st.selectbox("Selecciona una provincia:", df_v["Provincia"], key="incremento_real")
 
             nuevo_incremento_real = st.number_input(
                 f"Introduce el incremento real para {provincia_seleccionada}:",
                 min_value=0.0,
-                value=float(df2.loc[df["Provincia"] == provincia_seleccionada, "Incremento real"].values[0]),
+                value=float(df_v.loc[df_v["Provincia"] == provincia_seleccionada, "Incremento real"].values[0]),
                 step=0.1
             )
 
             # Actualizar el valor en el DataFrame y en `st.session_state`
-            df2.loc[df["Provincia"] == provincia_seleccionada, "Incremento real"] = nuevo_incremento_real
-            st.session_state["Incremento real velocidad"] = df2["Incremento real"]
+            df_v.loc[df_v["Provincia"] == provincia_seleccionada, "Incremento real"] = nuevo_incremento_real
+            st.session_state["Incremento real velocidad"] = df_v["Incremento real"]
 
             # Calcular KPI real en base al incremento real ingresado
-            df2["KPI real (%)"] = (df2["Incremento real"] / df2["Mbps (Media de bajada)"]) * 100
+            df_v["KPI real (%)"] = (df_v["Incremento real"] / df_v["Mbps (Media de bajada)"]) * 100
 
             # Mostrar los datos procesados
             st.subheader("Datos Procesados")
-            st.write(df2[["Provincia", "Mbps (Media de bajada)", "Incremento esperado", "Velocidad esperada", "Incremento real", "KPI real (%)"]])
+            st.write(df_v[["Provincia", "Mbps (Media de bajada)", "Incremento esperado", "Velocidad esperada", "Incremento real", "KPI real (%)"]])
 
             # Gráfico: Incremento esperado vs. real
             st.subheader("Gráfico: Incremento Esperado vs Real")
             fig, ax = plt.subplots(figsize=(12, 6))
             bar_width = 0.35
-            x = range(len(df["Provincia"]))
+            x = range(len(df_v["Provincia"]))
 
-            ax.bar(x, df["Incremento esperado"], width=bar_width, label="Incremento esperado", color="skyblue")
+            ax.bar(x, df_v["Incremento esperado"], width=bar_width, label="Incremento esperado", color="skyblue")
             ax.bar(
                 [p + bar_width for p in x],
-                df["Incremento real"],
+                df_v["Incremento real"],
                 width=bar_width,
                 label="Incremento real",
                 color="orange"
@@ -490,27 +495,26 @@ with tabs[1]:
             ax.set_xlabel("Provincias", fontsize=12)
             ax.set_ylabel("Incremento (Mbps)", fontsize=12)
             ax.set_xticks([p + bar_width / 2 for p in x])
-            ax.set_xticklabels(df["Provincia"], rotation=45, ha="right")
+            ax.set_xticklabels(df_v["Provincia"], rotation=45, ha="right")
             ax.legend()
             st.pyplot(fig)
 
             # Gráfico: KPI real por provincia
-            st.subheader("KPI Real (%) por Provincia")
+            st.subheader("Gráfico: KPI Real (%) por Provincia")
             fig, ax = plt.subplots(figsize=(12, 6))
-            ax.bar(df2["Provincia"], df2["KPI real (%)"], color="green")
+            ax.bar(df_v["Provincia"], df_v["KPI real (%)"], color="green")
             ax.set_title("KPI Real (%) por Provincia (Velocidad, Trimestre 2, 2024)", fontsize=14)
             ax.set_xlabel("Provincia", fontsize=12)
             ax.set_ylabel("KPI Real (%)", fontsize=12)
-            ax.set_xticklabels(df2["Provincia"], rotation=45, ha="right")
+            ax.set_xticklabels(df_v["Provincia"], rotation=45, ha="right")
             st.pyplot(fig)
 
             # Descargar los datos procesados
             st.subheader("Descarga de Datos Procesados")
-            csv = df2.to_csv(index=False)
+            csv = df_v.to_csv(index=False)
             st.download_button(
                 label="Descargar CSV con KPI",
                 data=csv,
                 file_name="kpi_incremento_velocidad.csv",
                 mime="text/csv",
             )
-
