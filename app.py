@@ -12,17 +12,33 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# CSS personalizado para ajustar el tamaño de los menús desplegables
+st.markdown("""
+    <style>
+    /* Ajustar los selectboxes */
+    div[data-baseweb="select"] {
+        height: 15px;
+        width: 150px; /* Cambia este valor para ajustar el ancho */
+        margin: 0 auto;
+    }
+    div[data-baseweb="select"] > div {
+        font-size: 10px; /* Ajustar el tamaño del texto */
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+
 # CSS personalizado para reducir espacio y ajustar tamaños
 st.markdown("""
     <style>
     h1 {
-        font-size: 28px;  /* Título principal */
+        font-size: 19px;  /* Título principal */
     }
     h2 {
-        font-size: 22px;  /* Subtítulos */
+        font-size: 17px;  /* Subtítulos */
     }
     h3 {
-        font-size: 18px;  /* Títulos menores */
+        font-size: 15px;  /* Títulos menores */
     }
     .block-container {
         padding-top: 1rem; /* Reducir espacio en blanco superior */
@@ -33,21 +49,15 @@ st.markdown("""
 # Cargar el dataset
 df1 = pd.read_excel("data/Internet.xlsx")
 
-# Preprocesamiento mejorado
-# Convertir columnas críticas a numérico (manejo de errores)
-for col in ['Velocidad (Mbps)', 'Accesos']:
-    df1[col] = pd.to_numeric(df1[col], errors='coerce')  # Convertir valores no numéricos a NaN
-
-# Eliminar filas con valores NaN en las columnas críticas
-df1 = df1.dropna(subset=['Velocidad (Mbps)', 'Accesos'])
-
-# Filtrar valores negativos o extremadamente altos
-# Velocidad (Mbps): Debe ser razonable (mayor que 0 y menor o igual a 10,000)
-df1 = df1[(df1['Velocidad (Mbps)'] > 0) & (df1['Velocidad (Mbps)'] <= 10000)]
-
-# Accesos: No deben ser negativos ni iguales a 0
-df1 = df1[df1['Accesos'] > 0]
-
+# Renombramos las columnas 
+df1.rename(columns={
+    'Partido': 'Provincia',
+    'Localidad': 'Partido',
+    'link Indec': 'Localidad',
+    'Velocidad (Mbps)': 'link Indec',
+    'Provincia': 'Velocidad (Mbps)',
+    'Accesos': 'Accesos'
+}, inplace=True)  # inplace=True aplica los cambios directamente al DataFrame
 
 # Mapear provincias si son numéricas
 if pd.api.types.is_numeric_dtype(df1['Provincia']):
@@ -63,6 +73,12 @@ if pd.api.types.is_numeric_dtype(df1['Provincia']):
 # Transformaciones logarítmicas
 df1['Accesos_log'] = df1['Accesos'].apply(lambda x: np.log(x + 1) if not pd.isnull(x) else np.nan)
 df1['Velocidad_log'] = df1['Velocidad (Mbps)'].apply(lambda x: np.log(x + 1) if not pd.isnull(x) else np.nan)
+
+# Asegurarse de que no haya valores -inf o NaN en Accesos_log
+df1['Accesos_log'] = df1['Accesos_log'].replace([-np.inf, np.inf], np.nan)
+df1 = df1.dropna(subset=['Accesos_log'])
+
+tabs = st.tabs(["Accesos_vel_loc_sinrangos",  "KPIs"])
 
 # Coordenadas de las provincias
 coordenadas_provincias = pd.DataFrame({
@@ -84,117 +100,417 @@ coordenadas_provincias = pd.DataFrame({
 # Agregar coordenadas al DataFrame principal
 df1 = pd.merge(df1, coordenadas_provincias, on='Provincia', how='left')
 
-# Encabezado del dashboard
-st.title("Dashboard Interactivo: Análisis de Accesos y Velocidad")
-st.markdown("Explora la distribución, correlaciones y relaciones entre los datos del análisis de internet.")
+with tabs[0]:
+    # Layout en dos columnas
+    col1, col2 = st.columns(2)
 
-# Layout en tres columnas
-col1, col2, col3 = st.columns(3)
+    # Primera columna: Filtros y distribución de Velocidad
+    with col1:
+                # Dividir la columna en dos subcolumnas: una para los menús y otra para los gráficos
+        col1_left, col1_right = st.columns([1, 2])  # La proporción 1:2 asigna más espacio al gráfico
 
- # Primera columna: Filtros y distribución de Velocidad
-with col1:
-    st.subheader("Distribución de Velocidad (Mbps)")
+        st.subheader("Relación Velocidad vs Accesos")
+            
+        with col1_left: 
+                selected_provincia_rel = st.selectbox(
+                 "Selecciona una Provincia (Todos para visualizar todas):",
+                 options=["Todos"] + list(df1['Provincia'].unique()),
+                 key="provincia_rel"
+             )
+                variables = {
+                "Velocidad (Mbps)": "Velocidad (Mbps)",
+                "VelocidadLOG": "Velocidad_log",
+                "Accesos": "Accesos",
+                "AccesosLOG": "Accesos_log"
+             }
+        
+                selected_x = st.selectbox("Variable eje X:", options=list(variables.keys()), key="x_axis",index=1 )
+                selected_y = st.selectbox("Variable eje Y:", options=list(variables.keys()), key="y_axis",index=3 )
+                
+        with col1_right:
+                    df1_rel = df1 if selected_provincia_rel == "Todos" else df1[df1['Provincia'] == selected_provincia_rel]
 
-    # Filtro por Provincia
-    selected_provincia_vel = st.selectbox(
+                    fig = px.scatter(
+                    df1_rel,
+                    x=variables[selected_x],
+                    y=variables[selected_y],
+                    color="Provincia",
+                    title=f"Relación entre {selected_x} y {selected_y}",
+                    hover_data=["Localidad", "Partido"]
+                    )
+                    st.plotly_chart(fig)
+                   
+    with col1:               
+        st.subheader("Distribución de Velocidad (Mbps)")
+
+         # Filtro por Provincia
+        selected_provincia_vel = st.selectbox(
         "Selecciona una Provincia (Todos para visualizar todas):",
         options=["Todos"] + list(df1['Provincia'].unique()),
         key="provincia_vel"
-    )
-    
-    # Filtro por Rango de Velocidad
-    min_vel, max_vel = st.slider(
+            )
+        
+        # Filtro por Rango de Velocidad
+        min_vel, max_vel = st.slider(
         "Rango de Velocidad (Mbps):",
-        min_value=float(df1['Velocidad (Mbps)'].min()),
+         min_value=float(df1['Velocidad (Mbps)'].min()),
         max_value=float(df1['Velocidad (Mbps)'].max()),
         value=(float(df1['Velocidad (Mbps)'].min()), float(df1['Velocidad (Mbps)'].max())),
         step=0.5
-    )
+            )
 
-    # Filtrar los datos
-    df1_vel = df1 if selected_provincia_vel == "Todos" else df1[df1['Provincia'] == selected_provincia_vel]
-    df1_vel = df1_vel[(df1_vel['Velocidad (Mbps)'] >= min_vel) & (df1_vel['Velocidad (Mbps)'] <= max_vel)]
+         # Filtrar los datos
+        df1_vel = df1 if selected_provincia_vel == "Todos" else df1[df1['Provincia'] == selected_provincia_vel]
+        df1_vel = df1_vel[(df1_vel['Velocidad (Mbps)'] >= min_vel) & (df1_vel['Velocidad (Mbps)'] <= max_vel)]
 
-    # Graficar
-    fig, ax = plt.subplots(figsize=(6, 4))
-    sns.histplot(df1_vel['Velocidad (Mbps)'], kde=True, bins=20, color="skyblue", ax=ax)
-    ax.set_title("Distribución de Velocidad")
-    st.pyplot(fig)
+        # Graficar
+        fig, ax = plt.subplots(figsize=(6, 4))
+        sns.histplot(df1_vel['Velocidad (Mbps)'], kde=True, bins=20, color="skyblue", ax=ax)
+        ax.set_title("Distribución de Velocidad")
+        st.pyplot(fig)
 
-    st.subheader("Distribución de Accesos (Log)")
-    fig, ax = plt.subplots(figsize=(6, 4))
-    sns.histplot(df1['Accesos_log'], kde=True, bins=20, color="green", ax=ax)
-    ax.set_title("Distribución de Accesos (Log)")
-    st.pyplot(fig)
+      
+    # Segunda columna: Mapa interactivo
+    with col2:
+        
+        col1_left, col1_right = st.columns([1, 2])
+        
+        with col1_left:
+            st.subheader("Mapa de Distribución Geográfica")
+            selected_provincia = st.selectbox(
+                "Selecciona una Provincia (Todos para visualizar todas):",
+                options=["Todos"] + list(df1['Provincia'].unique())
+            )
+            apply_multiple_filter = st.checkbox("Filtrar por varias Provincias", key="geo")
+            if apply_multiple_filter:
+                selected_provincias = st.multiselect(
+                    "Selecciona Provincias:",
+                    options=df1['Provincia'].unique(),
+                    default=df1['Provincia'].unique()
+                )
+                df1_map = df1[df1['Provincia'].isin(selected_provincias)]
+            else:
+                df1_map = df1 if selected_provincia == "Todos" else df1[df1['Provincia'] == selected_provincia]
 
-# Segunda columna: Mapa interactivo
-with col2:
-    st.subheader("Mapa de Distribución Geográfica")
-    selected_provincia = st.selectbox(
-        "Selecciona una Provincia (Todos para visualizar todas):",
-        options=["Todos"] + list(df1['Provincia'].unique())
-    )
-    apply_multiple_filter = st.checkbox("Filtrar por varias Provincias", key="geo")
-    if apply_multiple_filter:
-        selected_provincias = st.multiselect(
-            "Selecciona Provincias:",
-            options=df1['Provincia'].unique(),
-            default=df1['Provincia'].unique()
-        )
-        df1_map = df1[df1['Provincia'].isin(selected_provincias)]
-    else:
-        df1_map = df1 if selected_provincia == "Todos" else df1[df1['Provincia'] == selected_provincia]
+            df1_map = df1_map[df1_map['Accesos'] > 0]
 
-    df1_map = df1_map[df1_map['Accesos'] > 0]
+        with col1_right:
+            fig = px.scatter_mapbox(
+            df1_map,
+            lat="Latitud",
+            lon="Longitud",
+            size="Accesos",
+            color="Velocidad (Mbps)",
+            hover_name="Provincia",
+            color_continuous_scale=px.colors.sequential.Plasma,
+            size_max=50,
+            zoom=3,
+            mapbox_style="carto-positron",
+            title="Mapa de Accesos"
+            )
+            st.plotly_chart(fig)
 
-    fig = px.scatter_mapbox(
-        df1_map,
-        lat="Latitud",
-        lon="Longitud",
-        size="Accesos",
-        color="Velocidad (Mbps)",
-        hover_name="Provincia",
-        color_continuous_scale=px.colors.sequential.Plasma,
-        size_max=50,
-        zoom=3,
-        mapbox_style="carto-positron",
-        title="Mapa de Accesos"
-    )
-    st.plotly_chart(fig)
+    with col2:
+        st.subheader("Distribución de Accesos (Log)")
 
-# Tercera columna: Correlación y relación entre variables
-with col3:
-    st.subheader("Relación Velocidad vs Accesos")
-    selected_provincia_rel = st.selectbox(
-        "Selecciona una Provincia (Todos para visualizar todas):",
-        options=["Todos"] + list(df1['Provincia'].unique()),
-        key="provincia_rel"
-    )
-    variables = {
-        "Velocidad (Mbps)": "Velocidad (Mbps)",
-        "Velocidad en Escala Logaritmica": "Velocidad_log",
-        "Accesos": "Accesos",
-        "Accesos en Escala Logaritmica": "Accesos_log"
-    }
-    selected_x = st.selectbox("Variable eje X:", options=list(variables.keys()), key="x_axis")
-    selected_y = st.selectbox("Variable eje Y:", options=list(variables.keys()), key="y_axis")
-    df1_rel = df1 if selected_provincia_rel == "Todos" else df1[df1['Provincia'] == selected_provincia_rel]
+            # Filtro por Rango de Accesos (Log)
+        min_acc_log, max_acc_log = st.slider(
+        "Rango de Accesos (Log):",
+        min_value=float(df1['Accesos_log'].min()),
+        max_value=float(df1['Accesos_log'].max()),
+         value=(float(df1['Accesos_log'].min()), float(df1['Accesos_log'].max())),
+         step=0.5,
+         key="acc_log_slider"
+            )
+        
+        # Calcular valores originales del rango
+        min_original = np.exp(min_acc_log) - 1
+        max_original = np.exp(max_acc_log) - 1
 
-    fig = px.scatter(
-        df1_rel,
-        x=variables[selected_x],
-        y=variables[selected_y],
-        color="Provincia",
-        title=f"Relación entre {selected_x} y {selected_y}",
-        hover_data=["Localidad", "Partido"]
-    )
-    st.plotly_chart(fig)
+            # Mostrar rango original
+        st.write(f"Rango de Accesos Originales: {min_original:.2f} - {max_original:.2f}")
 
-    st.subheader("Matriz de Correlación")
-    fig, ax = plt.subplots(figsize=(6, 4))
-    correlation_matrix = df1[['Velocidad (Mbps)', 'Accesos']].corr()
-    sns.heatmap(correlation_matrix, annot=True, cmap="coolwarm", ax=ax)
-    st.pyplot(fig)
+            # Filtrar los datos
+        df1_acc = df1[(df1['Accesos_log'] >= min_acc_log) & (df1['Accesos_log'] <= max_acc_log)]
 
-st.write("Máximo valor en Velocidad (Mbps):", df1['Velocidad (Mbps)'].max())
-st.write("Mínimo valor en Velocidad (Mbps):", df1['Velocidad (Mbps)'].min())
+            # Graficar
+        fig, ax = plt.subplots(figsize=(6, 4))
+        sns.histplot(df1_acc['Accesos_log'], kde=True, bins=20, color="green", ax=ax)
+        ax.set_title("Distribución de Accesos (Log)")
+        st.pyplot(fig)
+            
+
+
+
+with tabs[1]:
+    
+    # Layout en tres columnas
+    col1, col2, col3 = st.columns(3)
+    
+    with col1: 
+            # Título de la aplicación
+            st.title("KPI 1: Aumentar un 2 porciento el acceso al servicio de internet para el próximo trimestre")
+
+            # Cargar el archivo con los datos en `st.session_state`
+            if "df1" not in st.session_state:
+                st.session_state.df1 = pd.read_excel("data/Internet.xlsx", sheet_name="Penetracion-hogares")
+                st.session_state.df1['Nuevo acceso'] = st.session_state.df1['Accesos por cada 100 hogares']  # Inicialmente igual a accesos actuales
+
+            # Obtener el DataFrame de la sesión
+            df1 = st.session_state.df1
+
+            # Asegurarse de que las columnas necesarias existan
+            if 'Provincia' in df1.columns and 'Accesos por cada 100 hogares' in df1.columns:
+                # Menú desplegable para seleccionar una provincia
+                st.subheader("Actualizar 'Nuevo acceso' por provincia")
+                provincia_seleccionada = st.selectbox(
+                    "Selecciona una provincia para actualizar su acceso:",
+                    options=df1['Provincia'].unique()
+                )
+
+                # Input para ingresar el nuevo acceso de la provincia seleccionada
+                nuevo_acceso_provincia = st.number_input(
+                    f"Introduce el nuevo acceso para {provincia_seleccionada}:",
+                    min_value=0.0,
+                    value=float(df1.loc[df1['Provincia'] == provincia_seleccionada, 'Nuevo acceso'].mean()),
+                    step=1.0
+                )
+
+                # Actualizar el valor en el DataFrame
+                df1.loc[df1['Provincia'] == provincia_seleccionada, 'Nuevo acceso'] = nuevo_acceso_provincia
+                st.success(f"Nuevo acceso actualizado para {provincia_seleccionada}: {nuevo_acceso_provincia}")
+
+                # Calcular el incremento esperado
+                df1['Incremento esperado'] = df1['Accesos por cada 100 hogares'] * 0.02
+
+                # Calcular los accesos esperados
+                df1['Accesos esperados'] = df1['Accesos por cada 100 hogares'] + df1['Incremento esperado']
+
+                # Calcular KPI para todas las provincias
+                df1['KPI (%)'] = ((df1['Nuevo acceso'] - df1['Accesos por cada 100 hogares']) / df1['Accesos por cada 100 hogares']) * 100
+
+                # Agrupar por provincia
+                df_grouped = df1.groupby('Provincia', as_index=False).agg({
+                    'Accesos por cada 100 hogares': 'mean',
+                    'Incremento esperado': 'mean',
+                    'Accesos esperados': 'mean',
+                    'Nuevo acceso': 'mean',
+                    'KPI (%)': 'mean'
+                })
+
+                # Mostrar los datos procesados con las nuevas columnas
+                st.subheader("Datos Procesados Agrupados por Provincia")
+                st.write(df_grouped)
+
+                # Gráfico interactivo para todas las provincias
+                st.subheader("Gráfico de KPI por Provincia")
+                fig, ax = plt.subplots(figsize=(10, 6))
+                ax.bar(df_grouped['Provincia'], df_grouped['KPI (%)'], color='skyblue')
+                ax.set_title('KPI: Incremento en el acceso a Internet por cada 100 hogares (%)', fontsize=14)
+                ax.set_xlabel('Provincia', fontsize=12)
+                ax.set_ylabel('KPI (%)', fontsize=12)
+                ax.set_xticklabels(df_grouped['Provincia'], rotation=45, ha='right')
+                st.pyplot(fig)
+
+                # Descargar los datos procesados
+                st.subheader("Descarga de Datos Procesados Agrupados")
+                csv = df_grouped.to_csv(index=False)
+                st.download_button(
+                    label="Descargar CSV Agrupado",
+                    data=csv,
+                    file_name='resultados_kpi_agrupados.csv',
+                    mime='text/csv',
+                )
+            else:
+                st.error("El archivo no contiene las columnas necesarias: 'Provincia' y 'Accesos por cada 100 hogares'.")
+
+        
+
+    with col2: 
+            
+            # Título de la aplicación
+            st.title("KPI: Incremento del 5% en Accesos por cada 100 Habitantes")
+
+            # Ruta del archivo Excel
+            ruta_excel = "data/internet.xlsx"
+            hoja = "Penetración-poblacion"
+
+            # Cargar los datos desde el Excel
+            @st.cache_data
+            def cargar_datos(ruta, hoja):
+                return pd.read_excel(ruta, sheet_name=hoja)
+
+            df = cargar_datos(ruta_excel, hoja)
+
+            # Filtrar los datos del año 2024 y trimestre 2
+            df = df[(df["Año"] == 2024) & (df["Trimestre"] == 2)]
+
+            # Calcular el incremento esperado (5%)
+            df["Incremento esperado"] = df["Accesos por cada 100 hab"] * 0.05
+            df["Acceso esperado"] = df["Accesos por cada 100 hab"] + df["Incremento esperado"]
+
+            # Inicializar columna para el incremento real si no está en `st.session_state`
+            if "Incremento real" not in st.session_state:
+                st.session_state["Incremento real"] = df["Incremento esperado"].copy()
+
+            df["Incremento real"] = st.session_state["Incremento real"]
+
+            # Actualizar manualmente el incremento real para cada provincia
+            st.subheader("Actualizar Incremento Real")
+            provincia_seleccionada = st.selectbox("Selecciona una provincia:", df["Provincia"])
+
+            nuevo_incremento_real = st.number_input(
+                f"Introduce el incremento real para {provincia_seleccionada}:",
+                min_value=0.0,
+                value=float(df.loc[df["Provincia"] == provincia_seleccionada, "Incremento real"].values[0]),
+                step=0.1
+            )
+
+            # Actualizar el valor en el DataFrame y en `st.session_state`
+            df.loc[df["Provincia"] == provincia_seleccionada, "Incremento real"] = nuevo_incremento_real
+            st.session_state["Incremento real"] = df["Incremento real"]
+
+            # Calcular KPI real en base al incremento real ingresado
+            df["KPI real (%)"] = (df["Incremento real"] / df["Accesos por cada 100 hab"]) * 100
+
+            # Mostrar los datos procesados
+            st.subheader("Datos Procesados")
+            st.write(df[["Provincia", "Accesos por cada 100 hab", "Incremento esperado", "Acceso esperado", "Incremento real", "KPI real (%)"]])
+
+            # Gráfico: Incremento esperado vs. real
+            st.subheader("Gráfico: Incremento Esperado vs Real")
+            fig, ax = plt.subplots(figsize=(12, 6))
+            bar_width = 0.35
+            x = range(len(df["Provincia"]))
+
+            ax.bar(x, df["Incremento esperado"], width=bar_width, label="Incremento esperado", color="skyblue")
+            ax.bar(
+                [p + bar_width for p in x],
+                df["Incremento real"],
+                width=bar_width,
+                label="Incremento real",
+                color="orange"
+            )
+
+            ax.set_title("Comparación de Incrementos por Provincia (Trimestre 2, 2024)", fontsize=14)
+            ax.set_xlabel("Provincias", fontsize=12)
+            ax.set_ylabel("Incremento", fontsize=12)
+            ax.set_xticks([p + bar_width / 2 for p in x])
+            ax.set_xticklabels(df["Provincia"], rotation=45, ha="right")
+            ax.legend()
+            st.pyplot(fig)
+
+            # Gráfico: KPI real por provincia
+            st.subheader("Gráfico: KPI Real (%) por Provincia")
+            fig, ax = plt.subplots(figsize=(12, 6))
+            ax.bar(df["Provincia"], df["KPI real (%)"], color="green")
+            ax.set_title("KPI Real (%) por Provincia (Trimestre 2, 2024)", fontsize=14)
+            ax.set_xlabel("Provincia", fontsize=12)
+            ax.set_ylabel("KPI Real (%)", fontsize=12)
+            ax.set_xticklabels(df["Provincia"], rotation=45, ha="right")
+            st.pyplot(fig)
+
+            # Descargar los datos procesados
+            st.subheader("Descarga de Datos Procesados")
+            csv = df.to_csv(index=False)
+            st.download_button(
+                label="Descargar CSV con KPI",
+                data=csv,
+                file_name="kpi_incremento_accesos.csv",
+                mime="text/csv",
+            )
+            
+    
+    with col3: 
+            # Título de la aplicación
+            st.title("KPI: Incremento del 10% en la Velocidad Promedio de Internet")
+
+            # Ruta del archivo Excel
+            ruta_excel = "data/internet.xlsx"
+            hoja = "Velocidad % por prov"
+
+            # Cargar los datos desde el Excel
+            @st.cache_data
+            def cargar_datos(ruta, hoja):
+                return pd.read_excel(ruta, sheet_name=hoja)
+
+            df2 = cargar_datos(ruta_excel, hoja)
+
+            # Filtrar los datos del año 2024 y trimestre 2
+            df2 = df2[(df["Año"] == 2024) & (df2["Trimestre"] == 2)]
+
+            # Calcular el incremento esperado (10%)
+            df2["Incremento esperado"] = df2["Mbps (Media de bajada)"] * 0.10
+            df2["Velocidad esperada"] = df2["Mbps (Media de bajada)"] + df2["Incremento esperado"]
+
+            # Inicializar columna para el incremento real si no está en `st.session_state`
+            if "Incremento real velocidad" not in st.session_state:
+                st.session_state["Incremento real velocidad"] = df2["Incremento esperado"].copy()
+
+            df2["Incremento real"] = st.session_state["Incremento real velocidad"]
+
+            # Actualizar manualmente el incremento real para cada provincia
+            st.subheader("Actualizar Incremento Real")
+            provincia_seleccionada = st.selectbox("Selecciona una provincia:", df2["Provincia"], key="incremento_real")
+
+            nuevo_incremento_real = st.number_input(
+                f"Introduce el incremento real para {provincia_seleccionada}:",
+                min_value=0.0,
+                value=float(df2.loc[df["Provincia"] == provincia_seleccionada, "Incremento real"].values[0]),
+                step=0.1
+            )
+
+            # Actualizar el valor en el DataFrame y en `st.session_state`
+            df2.loc[df["Provincia"] == provincia_seleccionada, "Incremento real"] = nuevo_incremento_real
+            st.session_state["Incremento real velocidad"] = df2["Incremento real"]
+
+            # Calcular KPI real en base al incremento real ingresado
+            df2["KPI real (%)"] = (df2["Incremento real"] / df2["Mbps (Media de bajada)"]) * 100
+
+            # Mostrar los datos procesados
+            st.subheader("Datos Procesados")
+            st.write(df2[["Provincia", "Mbps (Media de bajada)", "Incremento esperado", "Velocidad esperada", "Incremento real", "KPI real (%)"]])
+
+            # Gráfico: Incremento esperado vs. real
+            st.subheader("Gráfico: Incremento Esperado vs Real")
+            fig, ax = plt.subplots(figsize=(12, 6))
+            bar_width = 0.35
+            x = range(len(df["Provincia"]))
+
+            ax.bar(x, df["Incremento esperado"], width=bar_width, label="Incremento esperado", color="skyblue")
+            ax.bar(
+                [p + bar_width for p in x],
+                df["Incremento real"],
+                width=bar_width,
+                label="Incremento real",
+                color="orange"
+            )
+
+            ax.set_title("Comparación de Incrementos por Provincia (Velocidad, Trimestre 2, 2024)", fontsize=14)
+            ax.set_xlabel("Provincias", fontsize=12)
+            ax.set_ylabel("Incremento (Mbps)", fontsize=12)
+            ax.set_xticks([p + bar_width / 2 for p in x])
+            ax.set_xticklabels(df["Provincia"], rotation=45, ha="right")
+            ax.legend()
+            st.pyplot(fig)
+
+            # Gráfico: KPI real por provincia
+            st.subheader("KPI Real (%) por Provincia")
+            fig, ax = plt.subplots(figsize=(12, 6))
+            ax.bar(df2["Provincia"], df2["KPI real (%)"], color="green")
+            ax.set_title("KPI Real (%) por Provincia (Velocidad, Trimestre 2, 2024)", fontsize=14)
+            ax.set_xlabel("Provincia", fontsize=12)
+            ax.set_ylabel("KPI Real (%)", fontsize=12)
+            ax.set_xticklabels(df2["Provincia"], rotation=45, ha="right")
+            st.pyplot(fig)
+
+            # Descargar los datos procesados
+            st.subheader("Descarga de Datos Procesados")
+            csv = df2.to_csv(index=False)
+            st.download_button(
+                label="Descargar CSV con KPI",
+                data=csv,
+                file_name="kpi_incremento_velocidad.csv",
+                mime="text/csv",
+            )
+
